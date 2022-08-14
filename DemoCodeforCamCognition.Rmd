@@ -1,0 +1,190 @@
+---
+title: "Untitled"
+author: "Yiqiong Yang (Miriam)"
+date: '2022-07-26'
+output: html_document
+---
+
+## This markdown file is a demo for the intern application at Cambridge Cognition. For confidentiality, all the name of the dataframe has been refered to as df. These codes are picked from the script of projects I have done or currently working with. 
+
+```{r Set up}
+
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(visdat)
+
+```
+
+```{r Data Import}
+
+df <- read_csv("df.csv",
+# Skip the first three rows and make the new row as a header
+                    skip = 4, col_names = T) %>% 
+  dplyr::select(-c(8:15)) %>%  # Deselect some unused columns
+  rename(Username = '...19',   # Rename the column to username
+         Date = '...4') %>%    # Rename the column to date
+  mutate(date = as.Date(Date, format = "%m/%d/%Y"),
+         Feedback = case_when(Group == 1|
+                                Group == 2 ~ "Feedback")) 
+```
+
+
+```{r Data Wrangling}
+
+
+## Wrangling data from qualtrics that requires recode the name of columns
+df1 <- select(df, -c(1:4, 10:16, 50:54)) %>%
+  rename(RandomID = Q1) %>%
+  rename(ProlificID = ...18) %>%
+  filter(RandomID !=123) %>%
+  rename(Age = Q2) 
+
+
+## Wrangling data from a survey requires calculations across multiple columns
+df1 <- df %>%
+  mutate(V1 = select(., EI_1:EI_10) %>% 
+           rowSums(na.rm = TRUE)) %>%  
+  mutate(EIName = ifelse(EI <= 40, "Low", "High")) %>%
+  select(37:40, 55:63, 74:83)
+
+
+### Transforming data from the wideformat to long format
+df1 <- pivot_longer(df, cols = c(3:27),
+                        names_to = "Mood",
+                        values_to = "Level")
+
+### Transforming data from the long format to wride format
+
+df1 <- df %>%
+  select("Date", "Device", c(4:7)) %>%
+  pivot_wider(names_from = Device,
+              values_from = c(3:6)) %>%
+  mutate(TimeInBed = .[[3]] - .[[2]],  ### The column names are too long so I use column index rather than typing the name.
+         REM = .[[5]] - .[[4]],
+         LightSleep = .[[7]] - .[[6]],
+         DeepSleep = .[[9]] - .[[8]])
+
+
+### Tidy data that contain string
+df1 <- df %>% 
+  rename(RT = "Sci_resp.rt") %>%
+  mutate(SciPre = as.numeric(gsub("\\D", "", df$sci_kb_input.keys))) %>%
+  mutate(SciPre = SciPre - round(SciPre, -2)) %>%
+  filter(RandomID != 123)
+
+### Calculating the metrics post-error slowing using R. 
+### I did not write this myself, stackoverflow referece:
+### https://stackoverflow.com/questions/39253615/calculate-post-error-slowing-in-r
+
+### I complied it into a function, making it reproducible for other RT datasets without repeating the code. I also used this structure to obtain post-error accuracy.
+
+
+PEScalculator <- function(df){
+ df[,"condition1"] <- df[,"Accuracy"] == 0 
+ df[,"condition2"] <- df[,"Accuracy"] == 1
+ 
+ for(i in which(df[,"Accuracy"] == 0)){
+    if(nrow(df)>i && 
+       df[i+1,"Accuracy"] == 1 &&  
+       df[i-1,"Accuracy"] == 1 && 
+       df[i+2,"Accuracy"] == 1 &&
+       df[i-2,"Accuracy"] == 1 )           
+    df[i,"ccEcc"] <- df[i,"RT"] 
+    
+    if(nrow(df)>i &&
+       df[i+1,"Accuracy"] == 1)                              
+    df[i+1,"postE"] <- df[i+1,"RT"]  # postE: Post-error correct 
+ } 
+
+  df[,"condition3"] <- !is.na(df[,"ccEcc"])
+
+ for (k in which(df[, "condition3"] == TRUE)) {
+   if(nrow(df)>k)
+     df[k+1,"cceCc"] <- df[k+1,"RT"] # cceCc: post error pre correct 
+     df[k-1,"cCecc"] <- df[k-1,"RT"] # cCecc: post correct pre error
+ 
+ }
+ 
+for(j in which(df[, "Accuracy"] == 1)){
+  if(nrow(df)>j &&
+       df[j+1,"Accuracy"] == 1)
+    df[j+1,"postC"] <- df[j+1,"RT"] # postC: post correct correct items
+ }
+ return(df)
+}
+
+PEScalculator(df)
+
+```
+
+```{r Linear Mixed Model}
+
+### I run linear mixed model both in R and JASP to compare the results accuracy.
+### I found that the degree of freedom is inaccurate when I have three IVs, but JASP could recognise it and gives accurate DF in the ANOVA table.
+
+RTmodel <- lmer(RT ~ CorrType*Task*Feedback + (1|RandomID),
+                data = RTLong,
+                REML = TRUE)
+anova(RTmodel)
+summ(RTmodel)
+
+eta_sq(RTmodel, partial = TRUE)
+emmeans(RTmodel, list(pairwise ~ Task), adjust = "bonferroni")
+emmip(RTmodel, Feedback ~ Task, CIs = TRUE)
+
+
+plot(RTmodel)
+
+```
+
+```{r Visulisation}
+### I used the chunk of code below to produce polar charts for my 
+### internship work
+
+df %>%
+  filter(grepl("TQD", Username),
+         Date >= as.Date('2022-07-17') & 
+         Date <= as.Date('2022-07-24')) %>%
+  group_by(Username, Mood, MoodCategory) %>%
+  summarise(CatFrequency = sum((Frequency))) %>%
+  ggplot(aes(MoodCategory, CatFrequency, fill = Mood)) +
+  geom_bar(stat = 'identity', width = 0.5,
+           alpha = 0.6) +
+  ylim(-5, 50) +
+  scale_y_continuous(limits = c(0,100),
+                     breaks = seq(0, 100, by = 25),
+                     minor_breaks = seq(0, 80, by = 15)) +
+  coord_polar() +
+  theme(legend.title = element_blank(),
+        legend.position = "right",
+        legend.text = element_text(size=20),
+        axis.title.y =element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        panel.grid = element_blank(),
+        axis.title.x =element_text(size=20),
+        axis.text.x=element_text(size=25),
+        plot.margin = unit(rep(-2, 4), "cm"),
+        panel.background = element_blank()) 
+
+### Making plots to visualise an interaction effect
+
+df %>% 
+  summarySE(measurevar =  "PES",
+          groupvar = c("Task", "Feedback"), na.rm = TRUE) %>%
+  ggplot(aes(Task, Mean, linetype = Feedback)) +
+  geom_errorbar(aes(ymin=PES-se, ymax=PES+se), 
+                width=.1) +
+    geom_line(aes(linetype = Feedback), size = 0.8) +
+    geom_point(size = 1.5) +
+    theme_apa()
+
+
+```
+
+

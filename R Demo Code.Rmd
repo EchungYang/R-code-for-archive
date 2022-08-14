@@ -5,7 +5,7 @@ date: '2022-07-26'
 output: html_document
 ---
 
-## This markdown file is a demo for the intern application at Cambridge Cognition. For confidentiality, all the name of the dataframe has been refered to as df. These codes are picked from the script of projects I have done or currently working with. 
+## This markdown file is a demo, including wrangling, visualisation and anlaysis. For confidentiality, all the name of the dataframe has been refered to as df. These codes are picked from the script of projects I have done or currently working with. 
 
 ```{r Set up}
 

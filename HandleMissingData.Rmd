@@ -1,0 +1,125 @@
+---
+title: "Handle missing data"
+author: "Yiqiong Yang (Miriam)"
+date: "2022-08-18"
+output: html_document
+---
+
+
+```{r Loading packages}
+
+library(knitr) # Markdown presentation
+library(tidyverse) # Data wragnling and visualisation
+library(visdat) # Visualise missing data
+library(mice) # Multiple imputation
+
+
+
+```
+
+
+```{r Data simulation}
+
+df <- data.frame(Student = c("John", "Amos", "Can", "Eman", "Joy",
+             "Flora", "Max", "Kay"),
+           year2019 = sample(5:22, 8, replace = F),
+           year2020 = sample(12:20, 8, replace = F),
+           year2021 = sample(6:25, 8, replace = F))
+
+suphours <- as.data.frame(lapply(df, function(cc) cc[ sample(c(TRUE, NA), prob = c(0.85, 0.15), size = length(cc), replace = TRUE) ]))
+
+suphourslong <- suphours %>%
+  gather("Years", "Hours", 2:4) %>%
+  mutate(Years = gsub("\\D", "", Years))
+
+View(suphours)
+View(suphourslong)
+```
+
+
+Dealing with missing data
+```{r Remove rows contain NA}
+
+# Visualise missing data 
+visdat::vis_dat(suphourslong)
+mice::md.pattern(suphourslong)
+
+# Two ways to remove rows containing NA and then visualise the outcome
+suphourslong %>%
+  filter(!is.na(Hours)) %>%
+  visdat::vis_dat()
+
+suphourslong %>%
+  filter(complete.cases(Hours)) %>%
+  mice::md.pattern()
+
+suphourslong %>%
+  drop_na(Hours) %>%
+  visdat::vis_dat()
+  
+  
+```
+
+
+
+```{r Replace NA with other values}
+
+# For example, repalce NA with 0
+suphourslong %>%
+  mutate(Hours = replace_na(Hours, 0)) %>%
+  View()
+
+
+# Repalce NA with character, but firstly should convert that column into a matching type
+
+suphourslong %>%
+  mutate(Hours = replace_na(as.character(Hours), "none")) %>%
+  View()
+
+# Replace NA with the mean
+
+suphourslong %>%
+  mutate(Hours = replace_na(Hours, round(mean(Hours, na.rm = T), digits = 0))) %>%
+  View()
+
+
+```
+
+
+## Explain of mice syntax
+### m – is the number of imputations, the default is 5.
+### defaultMethod – indicates which method you want to use for imputation, the default is PMM. Accepted values are logreg, polyreg, and polr.
+### maxit– A scalar is giving the number of iterations. The default is 5.
+### seed – offsetting the random number generator.
+https://datasciencebeginners.com/2018/11/11/a-brief-introduction-to-mice-r-package/
+
+```{r Multivariate Imputation using MICE}
+
+# Check the method can be used in mice function
+methods(mice)
+
+## Start imputation using mice
+
+imputed_data <- mice(suphours,m=3,maxit=50,meth='pmm',seed=500)
+
+summary(imputed_data)
+
+```
+
+```{r Check imputed variable}
+
+imputed_data$imp$year2019 # For example, check the imputed values for year2019
+
+
+```
+
+
+```{r Fill the missing data with imputed values}
+
+# Assign the imputed dataset to 'finished_imputed'
+finished_imputed <- complete(imputed_data, 2)
+View(finished_imputed)
+
+```
+
+
